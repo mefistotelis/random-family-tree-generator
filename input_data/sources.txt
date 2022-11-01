@@ -1,0 +1,3 @@
+Publicly available statistical data:
+https://dane.gov.pl/pl/dataset/568,nazwiska-wystepujace-w-rejestrze-pesel
+https://dane.gov.pl/pl/dataset/219,imiona-nadawane-dzieciom-w-polsce
