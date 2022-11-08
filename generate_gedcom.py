@@ -56,6 +56,7 @@ class GPerson(object):
         self.sex = sex # One char string indicating sex with accordance to GEDCOM specification
         self.families = families # Array with indices of families within GTree families array
         self.events = events
+        self.change_date = None # Last change date for this object
 
 class GFamily(object):
     def __init__(self, ind, legal, dat, father, mother, children):
@@ -65,6 +66,7 @@ class GFamily(object):
         self.father = father # Index of father within GTree people array
         self.mother = mother # Index of mother within GTree people array
         self.children = children # Array with indices of children within GTree people array
+        self.change_date = None # Last change date for this object
 
 class GTree(object):
     def __init__(self, people, families, sources, notes, objects):
@@ -254,9 +256,41 @@ def create_father(po, gtree, gfamily_id, givname, surname, sex):
     families_list = [gfamily_id,]
     gfather = GPerson(level, "", givname, surname, sex, families_list, [])
     gfather_id = len(gtree.people)
-    gtree.people.append(gchild)
+    gtree.people.append(gfather)
     gfamily.father = gfather_id
-    return gchild_id
+    # Optional properties
+    gfather.change_date = po.final_date
+    return gfather_id
+
+
+def create_mother(po, gtree, gfamily_id, givname, surname, sex):
+    """ Create a mother for given family.
+
+        If surname is Null, get it from other family members.
+    """
+    gfamily = gtree.families[gfamily_id]
+    if gfamily.father is not None:
+        gfather = gtree.people[gfamily.father]
+        level = gfather.level
+        if surname is None:
+            surname = gfather.surname
+    elif len(gfamily.children) > 0:
+        gchild_first = gtree.people[gfamily.children[0]]
+        level = gchild_first.level - 1
+        if surname is None:
+            surname = gchild_first.surname
+    else:
+        level = 0
+        if surname is None:
+            surname = ""
+    families_list = [gfamily_id,]
+    gmother = GPerson(level, "", givname, surname, sex, families_list, [])
+    gmother_id = len(gtree.people)
+    gtree.people.append(gmother)
+    gfamily.mother = gmother_id
+    # Optional properties
+    gmother.change_date = po.final_date
+    return gmother_id
 
 
 def create_child(po, gtree, gfamily_id, givname, surname, sex):
@@ -289,6 +323,8 @@ def create_child(po, gtree, gfamily_id, givname, surname, sex):
     gchild_id = len(gtree.people)
     gtree.people.append(gchild)
     gfamily.children.append(gchild_id)
+    # Optional properties
+    gchild.change_date = po.final_date
     return gchild_id
 
 
@@ -363,8 +399,12 @@ def generate_parent(po, gtree, gfamily_id, givname, surname, sex):
             secname = cdf_random_value(firstnames_cdf)
         if len(secname) > 0:
             givname = givname + " " + secname
-    gchild_id = create_child(po, gtree, gfamily_id, givname, surname, sex)
-    return gchild_id
+    gfamily = gtree.families[gfamily_id]
+    if (gfamily.father is None) or ((gfamily.mother is not None) and (sex == "M")):
+        gperson_id = create_father(po, gtree, gfamily_id, givname, surname, sex)
+    else:
+        gperson_id = create_mother(po, gtree, gfamily_id, givname, surname, sex)
+    return gperson_id
 
 
 def family_get_random_child(po, gtree, gfamily_id, givname, surname, sex):
@@ -556,14 +596,18 @@ def gedcom_export_single_person(po, gedlines, gtree, gperson):
         for note_id in gperson.notes:
             gedlines.append("1 NOTE @{:s}@".format(note_id))
 
-    if 'change_date' in p.keys():
+    # Last change info lines
+    if gperson.change_date is not None:
             gedlines.append("1 CHAN")
-            gedlines.append("2 DATE {:s}".format(p['change_date']))
+            gedlines.append("2 DATE {:s}".format(gedcom_date_format(gperson.change_date)))
             #gedlines.append("3 TIME 12:34:58")
+    pass
 
 
 def gedcom_export_single_family(po, gedlines, gtree, gfamily):
-    gedlines.append("0 @{:s}@ FAM".format(gfamily.ind))
+    if True:
+        # Individual ID definition line
+        gedlines.append("0 @{:s}@ FAM".format(gfamily.ind))
     gfather = None
     if gfamily.father is not None:
         gfather = gtree.people[gfamily.father]
@@ -578,9 +622,10 @@ def gedcom_export_single_family(po, gedlines, gtree, gfamily):
         gchild = gtree.people[gchild_id]
         gedlines.append("1 CHIL @{:s}@".format(gchild.ind))
     # Last change info lines
-    gedlines.append("1 CHAN")
-    gedlines.append("2 DATE {:s}".format(gedcom_date_format(po.final_date)))
-    gedlines.append("2 TIME 01:23:46")
+    if gfamily.change_date is not None:
+        gedlines.append("1 CHAN")
+        gedlines.append("2 DATE {:s}".format(gedcom_date_format(gperson.change_date)))
+        gedlines.append("2 TIME 01:23:46")
     pass
 
 def gedcom_export_single_source(po, gedlines, gtree, gsource):
