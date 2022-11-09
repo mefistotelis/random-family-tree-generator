@@ -42,20 +42,24 @@ LASTNAMES_FEML_PL_FNAME="nazwiska_zenskie-z_uwzglednieniem_osob_zmarlych.csv"
 WeightedString = collections.namedtuple('WeightedString', ['s', 'weight'])
 
 class GPEvent(object):
-    def __init__(self, typ, dat, place):
+    def __init__(self, typ, dat=None, place=None, comment=""):
         self.typ = typ
         self.dat = dat
         self.place = place
+        self.comment = comment
 
 class GPerson(object):
-    def __init__(self, level, ind, givname, surname, sex, families, events):
+    def __init__(self, level, ind, givname, surname, sex, families, events=[], sources=[], notes=[], objects=[]):
         self.level = level # Ancestry level within the tree; not used for GEDCOM, useful for the generator only
         self.ind = ind # String identifier for the person
         self.givname = givname # Given name of a person; if multiple names, separate by space
         self.surname = surname
         self.sex = sex # One char string indicating sex with accordance to GEDCOM specification
         self.families = families # Array with indices of families within GTree families array
-        self.events = events
+        self.events = events # Array with GPEvent entries
+        self.sources = sources # Array with indices of sources within GTree sources array
+        self.notes = notes # Array with indices of notes within GTree notes array
+        self.objects = objects # Array with indices of objects within GTree objects array
         self.change_date = None # Last change date for this object
 
 class GFamily(object):
@@ -236,7 +240,7 @@ def relation_type_cdf(po):
 def create_father(po, gtree, gfamily_id, givname, surname, sex):
     """ Create a father for given family.
 
-        If surname is Null, get it from other family members.
+        If surname is None, get it from other family members.
     """
     gfamily = gtree.families[gfamily_id]
     if gfamily.mother is not None:
@@ -254,7 +258,7 @@ def create_father(po, gtree, gfamily_id, givname, surname, sex):
         if surname is None:
             surname = ""
     families_list = [gfamily_id,]
-    gfather = GPerson(level, "", givname, surname, sex, families_list, [])
+    gfather = GPerson(level, "", givname, surname, sex, families_list)
     gfather_id = len(gtree.people)
     gtree.people.append(gfather)
     gfamily.father = gfather_id
@@ -266,9 +270,10 @@ def create_father(po, gtree, gfamily_id, givname, surname, sex):
 def create_mother(po, gtree, gfamily_id, givname, surname, sex):
     """ Create a mother for given family.
 
-        If surname is Null, get it from other family members.
+        If surname is None, get it from other family members.
     """
     gfamily = gtree.families[gfamily_id]
+    # TODO create maiden name as well as name from marriage
     if gfamily.father is not None:
         gfather = gtree.people[gfamily.father]
         level = gfather.level
@@ -284,7 +289,7 @@ def create_mother(po, gtree, gfamily_id, givname, surname, sex):
         if surname is None:
             surname = ""
     families_list = [gfamily_id,]
-    gmother = GPerson(level, "", givname, surname, sex, families_list, [])
+    gmother = GPerson(level, "", givname, surname, sex, families_list)
     gmother_id = len(gtree.people)
     gtree.people.append(gmother)
     gfamily.mother = gmother_id
@@ -296,7 +301,7 @@ def create_mother(po, gtree, gfamily_id, givname, surname, sex):
 def create_child(po, gtree, gfamily_id, givname, surname, sex):
     """ Create a child for given family.
 
-        If surname is Null, get it from other family members.
+        If surname is None, get it from other family members.
     """
     gfamily = gtree.families[gfamily_id]
     if gfamily.father is not None:
@@ -319,7 +324,7 @@ def create_child(po, gtree, gfamily_id, givname, surname, sex):
         if surname is None:
             surname = ""
     families_list = [gfamily_id,]
-    gchild = GPerson(level, "", givname, surname, sex, families_list, [])
+    gchild = GPerson(level, "", givname, surname, sex, families_list)
     gchild_id = len(gtree.people)
     gtree.people.append(gchild)
     gfamily.children.append(gchild_id)
@@ -352,7 +357,7 @@ def create_family(po, gtree, gfather_id, gmother_id, children_list):
 def generate_child(po, gtree, gfamily_id, givname, surname, sex):
     """ Generate a child for given family.
 
-        If any parameter is Null, generate random value.
+        If any parameter is None, generate random value.
     """
     if sex is None:
         sex = cdf_random_value(person_sex_cdf(po))
@@ -379,7 +384,7 @@ def generate_child(po, gtree, gfamily_id, givname, surname, sex):
 def generate_parent(po, gtree, gfamily_id, givname, surname, sex):
     """ Generate a parent for given family.
 
-        If any parameter is Null, generate random value.
+        If any parameter is None, generate random value.
     """
     if sex is None:
         sex = cdf_random_value(person_sex_cdf(po))
@@ -471,7 +476,7 @@ def generate_core_branch(po, gtree, start_date, num_w, num_h):
     gperson = None
     for i in [0,]:
         givname = cdf_random_value(po.firstnames_male_cdf)
-        gperson = GPerson(i, "", givname, surname, "M", [], [])
+        gperson = GPerson(i, "", givname, surname, "M", [])
         gperson_id = len(gtree.people)
         gtree.people.append(gperson)
     # Now create descending generations of families
@@ -532,8 +537,7 @@ def gedcom_export_single_person(po, gedlines, gtree, gperson):
     if len(gperson.sex) > 0:
         gedlines.append("1 SEX {:s}".format(gperson.sex.upper()))
 
-    return#!!!TODO
-    if True:
+    if False: # TODO
         if gperson.ind in family_children_lookup.keys():
             family_children_lk_id = family_children_lookup[gperson.ind]
         else:
@@ -543,7 +547,7 @@ def gedcom_export_single_person(po, gedlines, gtree, gperson):
             gedlines.append("1 FAMC @{:s}@".format(family_children_lk_id))
             gedlines.append("2 PEDI birth")
 
-    if True:
+    if False: # TODO
         if p['id'] in family_parents_lookup.keys():
             fam_parents_lk_list = family_parents_lookup[p['id']]
         else:
@@ -552,55 +556,49 @@ def gedcom_export_single_person(po, gedlines, gtree, gperson):
             # Add Family spouse/partner entry
             gedlines.append("1 FAMS @{:s}@".format(family_id))
 
-    if 'birth_date' in p.keys() or 'birth_place' in p.keys() or 'birth_comment' in p.keys():
-        gedlines.append("1 BIRT")
-        if 'birth_date' in p.keys():
-            export_single_date(gedfile, p['birth_date'])
-        if 'birth_place' in p.keys():
-            gedlines.append("2 PLAC {:s}".format(p['birth_place']))
-        if 'birth_comment' in p.keys():
-            gedlines.append("2 TYPE {:s}".format(p['birth_comment']))
+    for gevent in gperson.events:
+        if gevent.typ in ("BIRT", "CHR", "DEAT", "BURI", "CREM", "ADOP", "BAPM", "BARM", \
+              "BASM", "CHRA", "CONF", "FCOM", "NATU", "EMIG", "IMMI", "CENS", "PROB", "WILL", \
+              "GRAD", "RETI", ):
+            gedlines.append("1 {:s}", gevent.typ)
+        else:
+            gedlines.append("1 EVEN")
+        if gevent.dat is not None:
+            export_single_date(gedlines, gevent.dat)
+        if gevent.place is not None:
+            gedlines.append("2 PLAC {:s}".format(gevent.place))
+        if gevent.comment is not None:
+            gedlines.append("2 TYPE {:s}".format(gevent.comment))
+        pass
 
-    if 'death_date' in p.keys() or 'death_place' in p.keys() or 'death_comment' in p.keys():
-        gedlines.append("1 DEAT")
-        if 'death_date' in p.keys():
-            export_single_date(gedfile, p['death_date'])
-        if 'death_place' in p.keys():
-            gedlines.append("2 PLAC {:s}".format(p['death_place']))
-        if 'death_comment' in p.keys():
-            gedlines.append("2 TYPE {:s}".format(p['death_comment']))
-
-    if p['link'] is not None:
-        gedlines.append("1 OBJE")
-        gedlines.append("2 FORM URL")
-        gedlines.append("2 FILE {:s}".format(p['link']))
-
-    if 'image_link' in p.keys():
-        image_fname = download_image(p, p['image_link'])
-        if image_fname is not None:
+    if True:
+        for gobject_id in gperson.objects:
+            gobject = gtree.objects[gobject_id]
             gedlines.append("1 OBJE")
-            gedlines.append("2 FORM jpeg")
-            gedlines.append("2 FILE {:s}".format(image_fname))
+            gedlines.append("2 FORM {:s}".format(gobject.typ)) # "URL" or "jpeg"
+            gedlines.append("2 FILE {:s}".format(gobject.fname))
 
-    if 'occupation' in p.keys() and len(p['occupation']) > 0:
+    if False: # TODO get occupation from events? or separate field?
         gedlines.append("1 OCCU {:s}".format(p['occupation']))
 
     if True:
-        for source_id in gperson.sources:
-            gedlines.append("1 SOUR @{:s}@".format(source_id))
-            nt_source = note_sources[source_id]
-            for note_id in nt_source['notes']:
-                gedlines.append("2 NOTE @{:s}@".format(note_id))
+        for gsource_id in gperson.sources:
+            gsource = gtree.sources[gsource_id]
+            gedlines.append("1 SOUR @{:s}@".format(gsource.ind))
+            for gnote_id in gsource.notes:
+                gnote = gtree.notes[gnote_id]
+                gedlines.append("2 NOTE @{:s}@".format(gnote.ind))
 
     if True:
-        for note_id in gperson.notes:
-            gedlines.append("1 NOTE @{:s}@".format(note_id))
+        for gnote_id in gperson.notes:
+            gnote = gtree.notes[gnote_id]
+            gedlines.append("1 NOTE @{:s}@".format(gnote.ind))
 
     # Last change info lines
     if gperson.change_date is not None:
-            gedlines.append("1 CHAN")
-            gedlines.append("2 DATE {:s}".format(gedcom_date_format(gperson.change_date)))
-            #gedlines.append("3 TIME 12:34:58")
+        gedlines.append("1 CHAN")
+        gedlines.append("2 DATE {:s}".format(gedcom_date_format(gperson.change_date)))
+        #gedlines.append("3 TIME 12:34:58")
     pass
 
 
