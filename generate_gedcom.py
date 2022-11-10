@@ -237,6 +237,17 @@ def relation_type_cdf(po):
     return cdf
 
 
+def child_pedigree_cdf(po):
+    """ Creates Cummulative Distribution Function for selecting pedigree linkage type of a child in a family.
+    """
+    cdf = [
+    (0.96,"birth"),
+    (0.99,"adopted"),
+    (1.00,"foster"),
+    ]
+    return cdf
+
+
 def create_father(po, gtree, gfamily_id, givname, surname, sex):
     """ Create a father for given family.
 
@@ -537,24 +548,20 @@ def gedcom_export_single_person(po, gedlines, gtree, gperson):
     if len(gperson.sex) > 0:
         gedlines.append("1 SEX {:s}".format(gperson.sex.upper()))
 
-    if False: # TODO
-        if gperson.ind in family_children_lookup.keys():
-            family_children_lk_id = family_children_lookup[gperson.ind]
-        else:
-            family_children_lk_id = None
-        if (family_children_lk_id is not None):
-            # Add Family Child entry
-            gedlines.append("1 FAMC @{:s}@".format(family_children_lk_id))
-            gedlines.append("2 PEDI birth")
-
-    if False: # TODO
-        if p['id'] in family_parents_lookup.keys():
-            fam_parents_lk_list = family_parents_lookup[p['id']]
-        else:
-            fam_parents_lk_list = []
-        for family_id in fam_parents_lk_list:
-            # Add Family spouse/partner entry
-            gedlines.append("1 FAMS @{:s}@".format(family_id))
+    if True:
+        for gfamily_id in gperson.families:
+            gfamily = gtree.families[gfamily_id]
+            if  ((gfamily.father is not None) and (gperson == gtree.people[gfamily.father])) or \
+                ((gfamily.mother is not None) and (gperson == gtree.people[gfamily.mother])):
+                # Add Family Spouse/Parent entry
+                gedlines.append("1 FAMS @{:s}@".format(gfamily.ind))
+            elif gperson in [gtree.people[gchild_id] for gchild_id in gfamily.children]:
+                # Add Family Child entry
+                gedlines.append("1 FAMC @{:s}@".format(gfamily.ind))
+                pedigree = cdf_random_value(child_pedigree_cdf(po)) # TODO random values should be settled before export
+                gedlines.append("2 PEDI {:s}".format(pedigree))
+            else:
+                raise ValueError("Person links to family but is not part of said family")
 
     for gevent in gperson.events:
         if gevent.typ in ("BIRT", "CHR", "DEAT", "BURI", "CREM", "ADOP", "BAPM", "BARM", \
