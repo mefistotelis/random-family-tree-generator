@@ -37,7 +37,6 @@ import sys
 FIRSTNAMES_MALE_PL_FNAME="3-_wykaz_imion_meskich_nadanych_dzieciom_urodzonym_w_2021_r._wg_pola_imie_pierwsze__statystyka_ogolna_dla_calej_polski.csv"
 FIRSTNAMES_FEML_PL_FNAME="3-_wykaz_imion_zenskich_nadanych_dzieciom_urodzonym_w_2021_r._wg_pola_imie_pierwsze__statystyka_ogolna_dla_calej_polski.csv"
 LASTNAMES_MALE_PL_FNAME="nazwiska_meskie-z_uwzglednieniem_osob_zmarlych.csv"
-LASTNAMES_FEML_PL_FNAME="nazwiska_zenskie-z_uwzglednieniem_osob_zmarlych.csv"
 
 WeightedString = collections.namedtuple('WeightedString', ['s', 'weight'])
 
@@ -671,6 +670,13 @@ def gedcom_export_single_object(po, gedlines, gtree, gobject):
     pass
 
 
+def write_lines_to_file(po, ofile, lines):
+    for line in lines:
+        ofile.write(line)
+        ofile.write("\n")
+    pass
+
+
 def gedcom_generate(po, gedfile):
     if (po.verbose > 0):
        print("{}: Reading name lists ...".format(po.gedcom))
@@ -692,12 +698,6 @@ def gedcom_generate(po, gedfile):
     #print(lastnames_male)
     po.lastnames_male_cdf = weighted_list_to_cdf(po, lastnames_male)
     del lastnames_male
-
-    fname = "input_data/{:s}".format(LASTNAMES_FEML_PL_FNAME)
-    lastnames_feml = csv_read_weighted_list(po, fname, 0, 1, True)
-    #print(lastnames_feml)
-    po.lastnames_feml_cdf = weighted_list_to_cdf(po, lastnames_feml)
-    del lastnames_feml
 
     po.num_people = 1000
     po.num_generations = 10
@@ -729,53 +729,39 @@ def gedcom_generate(po, gedfile):
         gedlines.append("1 CHAR UTF-8")
         gedlines.append("0 @SUBM@ SUBM")
         gedlines.append("1 NAME")
-        for line in gedlines:
-            gedfile.write(line)
-            gedfile.write("\n")
+        write_lines_to_file(po, gedfile, gedlines)
 
     for gperson in gtree.people:
         gedlines = []
         gedcom_export_single_person(po, gedlines, gtree, gperson)
-        for line in gedlines:
-            gedfile.write(line)
-            gedfile.write("\n")
+        write_lines_to_file(po, gedfile, gedlines)
 
     for gfamily in gtree.families:
         gedlines = []
         gedcom_export_single_family(po, gedlines, gtree, gfamily)
-        for line in gedlines:
-            gedfile.write(line)
-            gedfile.write("\n")
+        write_lines_to_file(po, gedfile, gedlines)
 
     for gsource in gtree.sources:
         gedlines = []
         gedcom_export_single_source(po, gedlines, gtree, gsource)
-        for line in gedlines:
-            gedfile.write(line)
-            gedfile.write("\n")
+        write_lines_to_file(po, gedfile, gedlines)
 
     for gnote in gtree.notes:
         gedlines = []
         gedcom_export_single_note(po, gedlines, gtree, gnote)
-        for line in gedlines:
-            gedfile.write(line)
-            gedfile.write("\n")
+        write_lines_to_file(po, gedfile, gedlines)
 
     for gobject in gtree.objects:
         gedlines = []
         gedcom_export_single_object(po, gedlines, gtree, gobject)
-        for line in gedlines:
-            gedfile.write(line)
-            gedfile.write("\n")
+        write_lines_to_file(po, gedfile, gedlines)
 
     if True:
         gedlines = []
         gedlines.append("0 TRLR")
-        for line in gedlines:
-            gedfile.write(line)
-            gedfile.write("\n")
+        write_lines_to_file(po, gedfile, gedlines)
+    pass
 
-    #print(num_of_children_cdf(po, 8))
 
 def main():
     """ Main executable function.
