@@ -255,6 +255,26 @@ def child_pedigree_cdf(po):
     return cdf
 
 
+def person_get_premarried_name(po, gtree, gperson_id):
+    """ Return name of a person from before marriage (birth name or maiden name).
+    """
+    gperson = gtree.people[gperson_id]
+    for name in gperson.names:
+        if name.typ in ["maiden","birth",]:
+            return name
+    return GPName("", None, None)
+
+
+def person_get_married_name(po, gtree, gperson_id):
+    """ Return name of a person from after marriage (married name).
+    """
+    gperson = gtree.people[gperson_id]
+    for name in gperson.names:
+        if name.typ in ["married",]:
+            return name
+    return GPName("", None, None)
+
+
 def person_is_parent_in_families(po, gtree, gperson_id):
     """ Return the list of ids of families in which given person is either a father of a mother.
     """
@@ -285,20 +305,29 @@ def create_father(po, gtree, gfamily_id, givname, surname, sex):
         If surname is None, get it from other family members.
     """
     gfamily = gtree.families[gfamily_id]
+    # Figure out level
     if gfamily.mother is not None:
         gmother = gtree.people[gfamily.mother]
         level = gmother.level
-        if surname is None:
-            surname = gmother.names[0].surn
     elif len(gfamily.children) > 0:
         gchild_first = gtree.people[gfamily.children[0]]
         level = gchild_first.level - 1
-        if surname is None:
-            surname = gchild_first.names[0].surn
     else:
         level = 0
-        if surname is None:
-            surname = ""
+    # Figure out surname
+    if (gfamily.mother is not None) and (surname is None):
+        name = person_get_married_name(po, gtree, gfamily.mother)
+        surname = name.surn
+    if (len(gfamily.children) > 0) and (surname is None):
+        name = person_get_premarried_name(po, gtree, gfamily.children[0])
+        surname = name.surn
+    if (gfamily.mother is not None) and (surname is None):
+        gmother = gtree.people[gfamily.mother]
+        name = gmother.names[0]
+        surname = name.surn
+    if surname is None:
+        surname = ""
+
     families_list = [gfamily_id,]
     birth_name = GPName("birth", givname, surname)
     gfather = GPerson(level, "", [birth_name,], sex, families_list)
@@ -313,24 +342,33 @@ def create_father(po, gtree, gfamily_id, givname, surname, sex):
 def create_mother(po, gtree, gfamily_id, givname, married_surname, maiden_surname=None, sex="F"):
     """ Create a mother for given family.
 
-        If married_surname is None, get it from other family members.
+        :param married_surname: Surname after marriage; if None, it is taken from other family members.
+        :param maiden_surname: Surname before marriage; if None, such name entry is not created.
     """
     gfamily = gtree.families[gfamily_id]
-    # TODO create maiden name as well as name from marriage
+    # Figure out level
     if gfamily.father is not None:
         gfather = gtree.people[gfamily.father]
         level = gfather.level
-        if married_surname is None:
-            married_surname = gfather.names[0].surn
     elif len(gfamily.children) > 0:
         gchild_first = gtree.people[gfamily.children[0]]
         level = gchild_first.level - 1
-        if married_surname is None:
-            married_surname = gchild_first.names[0].surn
     else:
         level = 0
-        if married_surname is None:
-            married_surname = ""
+    # Figure out surname
+    if (gfamily.father is not None) and (married_surname is None):
+        name = person_get_married_name(po, gtree, gfamily.father)
+        married_surname = name.surn
+    if (len(gfamily.children) > 0) and (married_surname is None):
+        name = person_get_premarried_name(po, gtree, gfamily.children[0])
+        married_surname = name.surn
+    if (gfamily.father is not None) and (married_surname is None):
+        gfather = gtree.people[gfamily.father]
+        name = gfather.names[0]
+        married_surname = name.surn
+    if married_surname is None:
+        married_surname = ""
+
     families_list = [gfamily_id,]
     names = [GPName("married", givname, married_surname),]
     if maiden_surname is not None:
@@ -434,6 +472,8 @@ def generate_parent(po, gtree, gfamily_id, givname, surname, maiden_surname=None
     """
     if sex is None:
         sex = cdf_random_value(person_sex_cdf(po))
+    gfamily = gtree.families[gfamily_id]
+    # Generate given name
     if givname is None:
         if sex == "M":
             firstnames_cdf = po.firstnames_male_cdf
@@ -450,7 +490,11 @@ def generate_parent(po, gtree, gfamily_id, givname, surname, maiden_surname=None
             secname = cdf_random_value(firstnames_cdf)
         if len(secname) > 0:
             givname = givname + " " + secname
-    gfamily = gtree.families[gfamily_id]
+    # Generate surname (if we don't want it to be taken from the rest of the family)
+    if surname is None:
+        if (sex == "M") and (len(gfamily.children) < 1):
+            surname = cdf_random_value(po.lastnames_male_cdf)
+    # Now create the person
     if (gfamily.father is None) or ((gfamily.mother is not None) and (sex == "M")):
         gperson_id = create_father(po, gtree, gfamily_id, givname, surname, sex)
     else:
@@ -458,6 +502,46 @@ def generate_parent(po, gtree, gfamily_id, givname, surname, maiden_surname=None
             maiden_surname = cdf_random_value_not_in_list(po.lastnames_male_cdf, [surname])
         gperson_id = create_mother(po, gtree, gfamily_id, givname, surname, maiden_surname, sex)
     return gperson_id
+
+
+def parent_add_married_name(po, gtree, gfamily_id):
+    """ Add married name to a parents (typically only mother), getting surname from members of given family.
+    """
+    gfamily = gtree.families[gfamily_id]
+    gfather = None
+    gmother = None
+    gchild_first = None
+    surname = None
+    if gfamily.father is not None:
+        gfather = gtree.people[gfamily.father]
+    if gfamily.mother is not None:
+        gmother = gtree.people[gfamily.mother]
+    if len(gfamily.children) > 0:
+        gchild_first = gtree.people[gfamily.children[0]]
+
+    if (gfamily.father is not None) and (surname is None):
+        name = person_get_married_name(po, gtree, gfamily.father)
+        surname = name.surn
+    if (gfamily.mother is not None) and (surname is None):
+        name = person_get_married_name(po, gtree, gfamily.mother)
+        surname = name.surn
+    if (len(gfamily.children) > 0) and (surname is None):
+        name = person_get_premarried_name(po, gtree, gfamily.children[0])
+        surname = name.surn
+
+    if (gfather is not None) and (surname is None):
+        surname = gfather.names[0].surn
+    if (gmother is not None) and (surname is None):
+        surname = gmother.names[0].surn
+    if (gchild_first is not None) and (surname is None):
+        surname = gchild_first.names[0].surn
+
+    # TODO add probability of merged names (father-mother)
+    # TODO add probability of father taking mothers name
+    if gmother is not None:
+        givname = gmother.names[0].givn
+        gmother.names.insert(0, GPName("married", givname, surname))
+    return
 
 
 def family_get_random_child(po, gtree, gfamily_id, givname, surname, sex):
@@ -508,6 +592,8 @@ def generate_family_incl_person(po, gtree, gperson_incl_id, gperson_role, num_ch
         gfather_id = generate_parent(po, gtree, gfamily_id, None, None, None, "M")
     if gmother_id is None:
         gmother_id = generate_parent(po, gtree, gfamily_id, None, None, None, "F")
+    else:
+        parent_add_married_name(po, gtree, gfamily_id)
     # Figure out limits on children - make sure we have a chance to meet min_male_children requirement
     min_children = 0
     male_children = 0
