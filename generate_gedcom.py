@@ -40,6 +40,15 @@ LASTNAMES_MALE_PL_FNAME="nazwiska_meskie-z_uwzglednieniem_osob_zmarlych.csv"
 
 WeightedString = collections.namedtuple('WeightedString', ['s', 'weight'])
 
+class GPName(object):
+    def __init__(self, typ, givname, surname, nickname="", snprefix="", snsuffix=""):
+        self.typ = typ # as in GEDCOM spec: [aka | birth | immigrant | maiden | married | <user defined>]
+        self.givn = givname # Given name of a person; if multiple names, separate by space
+        self.surn = surname
+        self.nick = nickname
+        self.prefix = snprefix # Surname prefix, ie. von/vel
+        self.suffix = snsuffix # Surname suffix, ie. sr./jr.
+
 class GPEvent(object):
     def __init__(self, typ, dat=None, place=None, comment=""):
         self.typ = typ
@@ -48,11 +57,10 @@ class GPEvent(object):
         self.comment = comment
 
 class GPerson(object):
-    def __init__(self, level, ind, givname, surname, sex, families, events=[], sources=[], notes=[], objects=[]):
+    def __init__(self, level, ind, names, sex, families, events=[], sources=[], notes=[], objects=[]):
         self.level = level # Ancestry level within the tree; not used for GEDCOM, useful for the generator only
         self.ind = ind # String identifier for the person
-        self.givname = givname # Given name of a person; if multiple names, separate by space
-        self.surname = surname
+        self.names = names # List of GPName objects
         self.sex = sex # One char string indicating sex with accordance to GEDCOM specification
         self.families = families # Array with indices of families within GTree families array
         self.events = events # Array with GPEvent entries
@@ -281,18 +289,19 @@ def create_father(po, gtree, gfamily_id, givname, surname, sex):
         gmother = gtree.people[gfamily.mother]
         level = gmother.level
         if surname is None:
-            surname = gmother.surname
+            surname = gmother.names[0].surn
     elif len(gfamily.children) > 0:
         gchild_first = gtree.people[gfamily.children[0]]
         level = gchild_first.level - 1
         if surname is None:
-            surname = gchild_first.surname
+            surname = gchild_first.names[0].surn
     else:
         level = 0
         if surname is None:
             surname = ""
     families_list = [gfamily_id,]
-    gfather = GPerson(level, "", givname, surname, sex, families_list)
+    birth_name = GPName("birth", givname, surname)
+    gfather = GPerson(level, "", [birth_name,], sex, families_list)
     gfather_id = len(gtree.people)
     gtree.people.append(gfather)
     gfamily.father = gfather_id
@@ -301,29 +310,32 @@ def create_father(po, gtree, gfamily_id, givname, surname, sex):
     return gfather_id
 
 
-def create_mother(po, gtree, gfamily_id, givname, surname, sex):
+def create_mother(po, gtree, gfamily_id, givname, married_surname, maiden_surname=None, sex="F"):
     """ Create a mother for given family.
 
-        If surname is None, get it from other family members.
+        If married_surname is None, get it from other family members.
     """
     gfamily = gtree.families[gfamily_id]
     # TODO create maiden name as well as name from marriage
     if gfamily.father is not None:
         gfather = gtree.people[gfamily.father]
         level = gfather.level
-        if surname is None:
-            surname = gfather.surname
+        if married_surname is None:
+            married_surname = gfather.names[0].surn
     elif len(gfamily.children) > 0:
         gchild_first = gtree.people[gfamily.children[0]]
         level = gchild_first.level - 1
-        if surname is None:
-            surname = gchild_first.surname
+        if married_surname is None:
+            married_surname = gchild_first.names[0].surn
     else:
         level = 0
-        if surname is None:
-            surname = ""
+        if married_surname is None:
+            married_surname = ""
     families_list = [gfamily_id,]
-    gmother = GPerson(level, "", givname, surname, sex, families_list)
+    names = [GPName("married", givname, married_surname),]
+    if maiden_surname is not None:
+        names.append(GPName("maiden", givname, maiden_surname))
+    gmother = GPerson(level, "", names, sex, families_list)
     gmother_id = len(gtree.people)
     gtree.people.append(gmother)
     gfamily.mother = gmother_id
@@ -342,23 +354,23 @@ def create_child(po, gtree, gfamily_id, givname, surname, sex):
         gfather = gtree.people[gfamily.father]
         level = gfather.level + 1
         if surname is None:
-            surname = gfather.surname
+            surname = gfather.names[0].surn
     elif gfamily.mother is not None:
         gmother = gtree.people[gfamily.mother]
         level = gmother.level + 1
         if surname is None:
-            surname = gmother.surname
+            surname = gmother.names[0].surn
     elif len(gfamily.children) > 0:
         gchild_first = gtree.people[gfamily.children[0]]
         level = gchild_first.level
         if surname is None:
-            surname = gchild_first.surname
+            surname = gchild_first.names[0].surn
     else:
         level = 0
         if surname is None:
             surname = ""
     families_list = [gfamily_id,]
-    gchild = GPerson(level, "", givname, surname, sex, families_list)
+    gchild = GPerson(level, "", [GPName("birth", givname, surname),], sex, families_list)
     gchild_id = len(gtree.people)
     gtree.people.append(gchild)
     gfamily.children.append(gchild_id)
@@ -415,7 +427,7 @@ def generate_child(po, gtree, gfamily_id, givname, surname, sex):
     return gchild_id
 
 
-def generate_parent(po, gtree, gfamily_id, givname, surname, sex):
+def generate_parent(po, gtree, gfamily_id, givname, surname, maiden_surname=None, sex="M"):
     """ Generate a parent for given family.
 
         If any parameter is None, generate random value.
@@ -442,7 +454,9 @@ def generate_parent(po, gtree, gfamily_id, givname, surname, sex):
     if (gfamily.father is None) or ((gfamily.mother is not None) and (sex == "M")):
         gperson_id = create_father(po, gtree, gfamily_id, givname, surname, sex)
     else:
-        gperson_id = create_mother(po, gtree, gfamily_id, givname, surname, sex)
+        if maiden_surname is None:
+            maiden_surname = cdf_random_value_not_in_list(po.lastnames_male_cdf, [surname])
+        gperson_id = create_mother(po, gtree, gfamily_id, givname, surname, maiden_surname, sex)
     return gperson_id
 
 
@@ -455,10 +469,10 @@ def family_get_random_child(po, gtree, gfamily_id, givname, surname, sex):
             if gchild.sex != sex:
                 continue
         if surname is not None:
-            if gchild.surname != surname:
+            if gchild.names[0].surn != surname:
                 continue
         if givname is not None:
-            if gchild.givname != givname:
+            if gchild.names[0].givn != givname:
                 continue
         matches.append(gchild_id)
     if len(matches) < 1:
@@ -491,9 +505,9 @@ def generate_family_incl_person(po, gtree, gperson_incl_id, gperson_role, num_ch
     gfamily_id = create_family(po, gtree, gfather_id, gmother_id, children_list)
     # Create any missing parents
     if gfather_id is None:
-        gfather_id = generate_parent(po, gtree, gfamily_id, None, None, "M")
+        gfather_id = generate_parent(po, gtree, gfamily_id, None, None, None, "M")
     if gmother_id is None:
-        gfather_id = generate_parent(po, gtree, gfamily_id, None, None, "F")
+        gmother_id = generate_parent(po, gtree, gfamily_id, None, None, None, "F")
     # Figure out limits on children - make sure we have a chance to meet min_male_children requirement
     min_children = 0
     male_children = 0
@@ -521,7 +535,7 @@ def generate_core_branch(po, gtree, start_date, num_w, num_h):
     gperson = None
     for i in [0,]:
         givname = cdf_random_value(po.firstnames_male_cdf)
-        gperson = GPerson(i, "", givname, surname, "M", [])
+        gperson = GPerson(i, "", [GPName("birth", givname, surname),], "M", [])
         gperson_id = len(gtree.people)
         gtree.people.append(gperson)
     # Create descending generations of families (trunk of our tree)
@@ -576,21 +590,20 @@ def gedcom_date_format(date_obj):
     return date_obj.strftime("%d %b %Y").upper()
 
 
-def gedcom_export_single_person_name(po, gedlines, gtree, gperson, pntype):
-    givname = gperson.givname
-    gedlines.append("1 NAME {:s} /{:s}/".format(givname, gperson.surname))
-    if pntype is not None:
-        gedlines.append("2 TYPE {:s}".format(pntype))
-    if len(givname) > 0:
-        gedlines.append("2 GIVN {:s}".format(givname))
-    #if len(gperson.nickname) > 0:
-    #    gedlines.append("2 NICK {:s}".format(gperson.nickname))
-    #if len(gperson.nameprefix) > 0:
-    #    gedlines.append("2 SPFX {:s}".format(gperson.nameprefix))
-    if len(gperson.surname) > 0:
-        gedlines.append("2 SURN {:s}".format(gperson.surname))
-    #if len(gperson.namesuffix) > 0:
-    #    gedlines.append("2 NSFX {:s}".format(gperson.namesuffix))
+def gedcom_export_single_person_name(po, gedlines, gtree, gpname):
+    gedlines.append("1 NAME {:s} /{:s}/".format(gpname.givn, gpname.surn))
+    if len(gpname.typ) > 0:
+        gedlines.append("2 TYPE {:s}".format(gpname.typ))
+    if len(gpname.givn) > 0:
+        gedlines.append("2 GIVN {:s}".format(gpname.givn))
+    if len(gpname.nick) > 0:
+        gedlines.append("2 NICK {:s}".format(gpname.nick))
+    if len(gpname.prefix) > 0:
+        gedlines.append("2 SPFX {:s}".format(gpname.prefix))
+    if len(gpname.surn) > 0:
+        gedlines.append("2 SURN {:s}".format(gpname.surn))
+    if len(gpname.suffix) > 0:
+        gedlines.append("2 NSFX {:s}".format(gpname.suffix))
 
 
 def gedcom_export_single_person(po, gedlines, gtree, gperson):
@@ -598,11 +611,8 @@ def gedcom_export_single_person(po, gedlines, gtree, gperson):
         # Individual ID definition line
         gedlines.append("0 @{:s}@ INDI".format(gperson.ind))
 
-    if True:
-        gedcom_export_single_person_name(po, gedlines, gtree, gperson, "birth")
-
-    #for pntype, pname in gperson.other_names.items():
-    #    gedcom_export_single_person_name(po, gedlines, gtree, pntype)
+    for gpname in gperson.names:
+        gedcom_export_single_person_name(po, gedlines, gtree, gpname)
 
     if len(gperson.sex) > 0:
         gedlines.append("1 SEX {:s}".format(gperson.sex.upper()))
