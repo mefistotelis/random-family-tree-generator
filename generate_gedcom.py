@@ -247,6 +247,30 @@ def child_pedigree_cdf(po):
     return cdf
 
 
+def person_is_parent_in_families(po, gtree, gperson_id):
+    """ Return the list of ids of families in which given person is either a father of a mother.
+    """
+    matches = []
+    gperson = gtree.people[gperson_id]
+    for gfamily_id in gperson.families:
+        gfamily = gtree.families[gfamily_id]
+        if (gfamily.father == gperson_id) or (gfamily.mother == gperson_id):
+            matches.append(gfamily_id)
+    return matches
+
+
+def person_is_child_in_families(po, gtree, gperson_id):
+    """ Return the list of ids of families in which given person is a child.
+    """
+    matches = []
+    gperson = gtree.people[gperson_id]
+    for gfamily_id in gperson.families:
+        gfamily = gtree.families[gfamily_id]
+        if gperson_id in gfamily.children:
+            matches.append(gfamily_id)
+    return matches
+
+
 def create_father(po, gtree, gfamily_id, givname, surname, sex):
     """ Create a father for given family.
 
@@ -489,7 +513,7 @@ def generate_family_incl_person(po, gtree, gperson_incl_id, gperson_role, num_ch
     return gfamily_id
 
 def generate_core_branch(po, gtree, start_date, num_w, num_h):
-    """ Generate a string of families which will make core branch of the tree.
+    """ Generate a chain of families which will make core branch (trunk) of the tree.
     """
     bdate = start_date + datetime.timedelta(days=random.randrange(365))
     # Generate a single person who will be the base for the branch
@@ -500,13 +524,35 @@ def generate_core_branch(po, gtree, start_date, num_w, num_h):
         gperson = GPerson(i, "", givname, surname, "M", [])
         gperson_id = len(gtree.people)
         gtree.people.append(gperson)
-    # Now create descending generations of families
+    # Create descending generations of families (trunk of our tree)
     for i in range(1,num_h):
         num_children = cdf_random_value(num_of_children_cdf(po, num_w))
         gfamily_id = generate_family_incl_person(po, gtree, gperson_id, "father", num_children, 1)
         gperson_id = family_get_random_child(po, gtree, gfamily_id, None, None, "M")
         if gperson_id is None:
             raise RuntimeError("No matching child found even though we've forced one")
+    pass
+
+
+def generate_sub_branches(po, gtree, num_w):
+    """ Generate a familiy around each of the people within the tree.
+    """
+    for gperson_id in range(0,len(gtree.people)):
+        if len(gtree.people) >= po.num_people:
+            break
+        gperson = gtree.people[gperson_id]
+        # If person is not a parent, generate a family where they are one
+        # TODO allow double marriage, with some small chance
+        if (len(person_is_parent_in_families(po, gtree, gperson_id)) < 1) and (gperson.level+1 < po.num_generations):
+            gperson_role = "mother" if gperson.sex == "F" else "father"
+            num_children = cdf_random_value(num_of_children_cdf(po, num_w))
+            gfamily_id = generate_family_incl_person(po, gtree, gperson_id, gperson_role, num_children, 0)
+            continue
+        # If person is not a child, generate a family where they are one
+        if (len(person_is_child_in_families(po, gtree, gperson_id)) < 1) and (gperson.level > 0):
+            num_children = cdf_random_value(num_of_children_cdf(po, num_w))
+            gfamily_id = generate_family_incl_person(po, gtree, gperson_id, "child", num_children, 0)
+            continue
     pass
 
 
@@ -699,15 +745,14 @@ def gedcom_generate(po, gedfile):
     po.lastnames_male_cdf = weighted_list_to_cdf(po, lastnames_male)
     del lastnames_male
 
-    po.num_people = 1000
-    po.num_generations = 10
-
     po.final_date = datetime.date(2020, 1, 1)
     start_date = datetime.date(2020 - 35 * po.num_generations, 1, 1)
     gtree = GTree([], [], [], [], [])
 
-    core_branch_w = int(1/3 * po.num_people / po.num_generations)
+    core_branch_w = min(int(1/3 * po.num_people / po.num_generations), 8)
     generate_core_branch(po, gtree, start_date, core_branch_w, po.num_generations)
+    while len(gtree.people) < po.num_people:
+        generate_sub_branches(po, gtree, core_branch_w)
 
     gedcom_reset_identifiers(po, gtree)
 
@@ -776,7 +821,13 @@ def main():
           help="increases verbosity level; max level is set by -vvv")
 
     parser.add_argument("--second-name-chance", type=int, default=7,
-          help="chance of a person having two names, in percent; default is 7")
+          help="chance of a person having two names, in percent (default: %(default)s)")
+
+    parser.add_argument("--num-people", type=int, default=1000,
+          help="aimed number of people in the tree (default: %(default)s)")
+
+    parser.add_argument("--num-generations", type=int, default=10,
+          help="number of generations (default: %(default)s)")
 
     subparser = parser.add_mutually_exclusive_group()
 
