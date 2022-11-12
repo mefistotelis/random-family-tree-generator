@@ -22,7 +22,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 __author__ = "Mefistotelis"
 __license__ = "GPL"
 
@@ -438,11 +438,20 @@ def family_get_random_child(po, gtree, gfamily_id, givname, surname, sex):
             if gchild.givname != givname:
                 continue
         matches.append(gchild_id)
+    if len(matches) < 1:
+        return None
     return random.choice(matches)
 
 
 def generate_family_incl_person(po, gtree, gperson_incl_id, gperson_role, num_children, min_male_children):
     """ Generate a family around given parent person.
+
+        :param num_children: Minimal amount of children for the family to have.
+               If the gperson role it child, that child it is counted to this limit.
+               The family may end up having more children if meeting min_male_children
+               amount requires that.
+        :param min_male_children:
+               Minimal amount of male children for the family to have.
     """
     # Create a new family
     gfather_id = None
@@ -462,16 +471,18 @@ def generate_family_incl_person(po, gtree, gperson_incl_id, gperson_role, num_ch
         gfather_id = generate_parent(po, gtree, gfamily_id, None, None, "M")
     if gmother_id is None:
         gfather_id = generate_parent(po, gtree, gfamily_id, None, None, "F")
-    # Add children to the family
+    # Figure out limits on children - make sure we have a chance to meet min_male_children requirement
     min_children = 0
     male_children = 0
     if gchild is not None:
         min_children += 1
         if gchild.sex == "M":
             male_children += 1
-    for i in range(min_children, num_children):
+    max_children = max(num_children, min_children + max(0, min_male_children - male_children) + 1)
+    # Add children to the family
+    for i in range(min_children, max_children):
         sex = cdf_random_value(person_sex_cdf(po))
-        if (i == num_children - min_male_children) and (male_children < min_male_children):
+        if (i == max_children - min_male_children) and (male_children < min_male_children):
             sex = "M"
         if sex == "M":
             male_children += 1
@@ -492,8 +503,11 @@ def generate_core_branch(po, gtree, start_date, num_w, num_h):
         gtree.people.append(gperson)
     # Now create descending generations of families
     for i in range(1,num_h):
-        gfamily_id = generate_family_incl_person(po, gtree, gperson_id, "father", num_w, 1)
+        num_children = cdf_random_value(num_of_children_cdf(po, num_w))
+        gfamily_id = generate_family_incl_person(po, gtree, gperson_id, "father", num_children, 1)
         gperson_id = family_get_random_child(po, gtree, gfamily_id, None, None, "M")
+        if gperson_id is None:
+            raise RuntimeError("No matching child found even though we've forced one")
     pass
 
 
